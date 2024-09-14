@@ -46,10 +46,10 @@ class LastTokenClassification(CustomMetric):
             label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)
             label = self.find_last(label)
             try:
-                correct += int(find_last(pred) == label)
+                correct += int(self.find_last(pred) == label)
                 total += 1
-            except:
-                print(f'Failed to evaluate sample:\n'
+            except Exception as e:
+                print(f'Failed to evaluate sample due to {e}:\n'
                       f'Prediction: {pred}\n'
                       f'Label: {label}')
         print(f'acc {correct / total if total else 0.}')
