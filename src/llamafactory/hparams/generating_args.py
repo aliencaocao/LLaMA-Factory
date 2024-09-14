@@ -40,6 +40,9 @@ class GeneratingArguments:
         default=50,
         metadata={"help": "The number of highest probability vocabulary tokens to keep for top-k filtering."},
     )
+    min_p: float = field(
+        default=0.05,
+        metadata={"help": "The minimum probability of min p sampling. See https://github.com/huggingface/transformers/issues/27670."})
     num_beams: int = field(
         default=1,
         metadata={"help": "Number of beams for beam search. 1 means no beam search."},
