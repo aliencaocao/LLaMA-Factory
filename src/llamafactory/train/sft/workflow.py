@@ -79,9 +79,9 @@ def run_sft(
             )
         sys.path.pop(0)
         # get name of the function
-        custom_compute_metrics = getattr(custom_metrics, finetuning_args.custom_compute_metrics, None)
+        custom_compute_metrics = getattr(custom_metrics, finetuning_args.custom_metric, None)
         if custom_compute_metrics is None:
-            raise ValueError(f"Cannot find the function {finetuning_args.custom_compute_metrics} in src/llamafactory/train/custom_metrics.py.")
+            raise ValueError(f"Cannot find the function {finetuning_args.custom_metric} in src/llamafactory/train/custom_metrics.py.")
         metric_module["compute_metrics"] = custom_compute_metrics(tokenizer=tokenizer, label_words=['yes', 'no'])
     elif training_args.predict_with_generate:
         metric_module["compute_metrics"] = ComputeSimilarity(tokenizer=tokenizer)
