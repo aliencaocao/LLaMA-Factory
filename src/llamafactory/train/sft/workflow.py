@@ -67,7 +67,7 @@ def run_sft(
 
     # Metric utils
     metric_module = {}
-    if finetuning_args.custom_compute_metrics:
+    if finetuning_args.custom_metric:
         import sys
         sys.path.insert(0, '../')
         try:
