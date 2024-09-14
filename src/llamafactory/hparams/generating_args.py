@@ -67,9 +67,6 @@ class GeneratingArguments:
         default=None,
         metadata={"help": "Default system message to use in chat completion."},
     )
-    output_scores: bool = field(
-        default=False,
-        metadata={"help": "Whether to output the scores of the generated tokens."})
 
     def to_dict(self) -> Dict[str, Any]:
         args = asdict(self)
