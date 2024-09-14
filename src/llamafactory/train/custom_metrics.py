@@ -36,7 +36,7 @@ class LastTokenClassification(CustomMetric):
 
     def find_last(self, text: str) -> str:
         for word in reversed(text.replace(':', ' ').split()):
-            if word.lower() in self.label_tokens:
+            if word.lower() in self.label_words:
                 return word.lower()
 
     def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
