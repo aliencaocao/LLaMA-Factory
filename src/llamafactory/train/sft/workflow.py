@@ -67,12 +67,7 @@ def run_sft(
 
     # Metric utils
     metric_module = {}
-    if training_args.predict_with_generate:
-        metric_module["compute_metrics"] = ComputeSimilarity(tokenizer=tokenizer)
-    elif finetuning_args.compute_accuracy:
-        metric_module["compute_metrics"] = ComputeAccuracy()
-        metric_module["preprocess_logits_for_metrics"] = eval_logit_processor
-    elif finetuning_args.custom_compute_metrics:
+    if finetuning_args.custom_compute_metrics:
         import sys
         sys.path.insert(0, '../')
         try:
@@ -87,6 +82,11 @@ def run_sft(
         if custom_compute_metrics is None:
             raise ValueError(f"Cannot find the function {finetuning_args.custom_compute_metrics} in src/llamafactory/train/custom_metrics.py.")
         metric_module["compute_metrics"] = custom_compute_metrics(tokenizer=tokenizer, label_words=['yes', 'no'])
+    elif training_args.predict_with_generate:
+        metric_module["compute_metrics"] = ComputeSimilarity(tokenizer=tokenizer)
+    elif finetuning_args.compute_accuracy:
+        metric_module["compute_metrics"] = ComputeAccuracy()
+        metric_module["preprocess_logits_for_metrics"] = eval_logit_processor
 
     # Initialize our Trainer
     trainer = CustomSeq2SeqTrainer(
