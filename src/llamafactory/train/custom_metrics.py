@@ -31,7 +31,7 @@ class LastTokenClassification(CustomMetric):
         self.tokenizer = tokenizer
         self.label_words = label_words
         self.label_tokens = [i for i in range(self.tokenizer.vocab_size) if self.tokenizer.decode(i).lower().strip() in self.label_words]  # all possible class tokens
-        self.label_tokens_tensor = torch.tensor(yes_no_tokens, dtype=torch.int64)
+        self.label_tokens_tensor = torch.tensor(self.label_tokens, dtype=torch.int64)
 
     def find_last(self, text: str) -> str:
         for word in reversed(text.replace(':', ' ').split()):
@@ -40,12 +40,10 @@ class LastTokenClassification(CustomMetric):
 
     def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
         total, correct = 0, 0
-        labels_for_auroc = []
-        for pred, label in zip(eval_pred.predictions, eval_pred.label_ids):
+        for pred, label in zip(eval_preds.predictions, eval_preds.label_ids):
             pred = self.tokenizer.decode(pred, skip_special_tokens=True)
             label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)
             label = self.find_last(label)
-            labels_for_auroc.append(1 if label == 'yes' else 0)
             try:
                 correct += int(find_last(pred) == label)
                 total += 1
