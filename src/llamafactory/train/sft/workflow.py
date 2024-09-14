@@ -86,7 +86,7 @@ def run_sft(
         custom_compute_metrics = getattr(custom_metrics, finetuning_args.custom_compute_metrics, None)
         if custom_compute_metrics is None:
             raise ValueError(f"Cannot find the function {finetuning_args.custom_compute_metrics} in src/llamafactory/train/custom_metrics.py.")
-        metric_module["compute_metrics"] = custom_compute_metrics(tokenizer=tokenizer)
+        metric_module["compute_metrics"] = custom_compute_metrics(tokenizer=tokenizer, label_words=['yes', 'no'])
 
     # Initialize our Trainer
     trainer = CustomSeq2SeqTrainer(
