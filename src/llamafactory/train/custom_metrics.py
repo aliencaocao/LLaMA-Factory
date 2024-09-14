@@ -5,6 +5,7 @@ if TYPE_CHECKING:
     from transformers import EvalPrediction, PreTrainedTokenizer
 
 import torch
+import numpy as np
 
 
 @dataclass
@@ -41,7 +42,7 @@ class LastTokenClassification(CustomMetric):
     def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
         total, correct = 0, 0
         for pred, label in zip(eval_preds.predictions, eval_preds.label_ids):
-            pred = self.tokenizer.decode(pred, skip_special_tokens=True)
+            pred = self.tokenizer.decode([x for x in pred if x > 0], skip_special_tokens=True)
             label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)
             label = self.find_last(label)
             try:
