@@ -69,12 +69,13 @@ def run_sft(
     metric_module = {}
     if finetuning_args.custom_metric:
         import sys
-        sys.path.insert(0, '../')
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
         try:
             import custom_metrics
         except ImportError:
             raise ImportError(
-                "To use custom_compute_metrics, you need to define the function in a file named custom_metrics.py and place under src/llamafactory/train/custom_metrics.py."
+                "To use custom_metric, you need to define the function in a file named custom_metrics.py and place under src/llamafactory/train/custom_metrics.py."
             )
         sys.path.pop(0)
         # get name of the function
