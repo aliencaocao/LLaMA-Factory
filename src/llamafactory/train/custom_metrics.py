@@ -9,12 +9,6 @@ import torch
 
 @dataclass
 class CustomMetric:
-    """
-    All custom metric has access to the tokenizer.
-    """
-
-    tokenizer: "PreTrainedTokenizer"
-
     def _dump(self) -> Optional[Dict[str, float]]:
         result = None
         if hasattr(self, "score_dict"):
@@ -32,7 +26,7 @@ class LastTokenClassification(CustomMetric):
     Computes accuracy and AUROC based on model output and logits. Classes are specific tokens.
     """
 
-    def __init__(self, label_words: List[str]):
+    def __init__(self, tokenizer: "PreTrainedTokenizer", label_words: List[str]):
         super().__init__()
         self.label_words = label_words
         self.label_tokens = [i for i in range(self.tokenizer.vocab_size) if self.tokenizer.decode(i).lower().strip() in self.label_words]  # all possible class tokens
