@@ -342,6 +342,10 @@ class FinetuningArguments(FreezeArguments, LoraArguments, RLHFArguments, GaloreA
         default=False,
         metadata={"help": "Whether or not to compute the token-level accuracy at evaluation."},
     )
+    custom_metric: str = field(
+        default=None,
+        metadata={"help": "Specify custom metric function for evaluation. Custom metric need to be defined in src/llamafactory/train/custom_metrics.py."},
+    )
     plot_loss: bool = field(
         default=False,
         metadata={"help": "Whether or not to save the training loss curves."},

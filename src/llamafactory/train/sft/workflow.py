@@ -72,6 +72,21 @@ def run_sft(
     elif finetuning_args.compute_accuracy:
         metric_module["compute_metrics"] = ComputeAccuracy()
         metric_module["preprocess_logits_for_metrics"] = eval_logit_processor
+    elif finetuning_args.custom_compute_metrics:
+        import sys
+        sys.path.insert(0, '../')
+        try:
+            import custom_metrics
+        except ImportError:
+            raise ImportError(
+                "To use custom_compute_metrics, you need to define the function in a file named custom_metrics.py and place under src/llamafactory/train/custom_metrics.py."
+            )
+        sys.path.pop(0)
+        # get name of the function
+        custom_compute_metrics = getattr(custom_metrics, finetuning_args.custom_compute_metrics, None)
+        if custom_compute_metrics is None:
+            raise ValueError(f"Cannot find the function {finetuning_args.custom_compute_metrics} in src/llamafactory/train/custom_metrics.py.")
+        metric_module["compute_metrics"] = custom_compute_metrics(tokenizer=tokenizer)
 
     # Initialize our Trainer
     trainer = CustomSeq2SeqTrainer(
