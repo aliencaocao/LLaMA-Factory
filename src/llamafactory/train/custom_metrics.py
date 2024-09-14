@@ -28,6 +28,7 @@ class LastTokenClassification(CustomMetric):
 
     def __init__(self, tokenizer: "PreTrainedTokenizer", label_words: List[str]):
         super().__init__()
+        self.tokenizer = tokenizer
         self.label_words = label_words
         self.label_tokens = [i for i in range(self.tokenizer.vocab_size) if self.tokenizer.decode(i).lower().strip() in self.label_words]  # all possible class tokens
         self.label_tokens_tensor = torch.tensor(yes_no_tokens, dtype=torch.int64)
