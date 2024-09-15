@@ -51,5 +51,5 @@ def configure_liger_kernel(config: "PretrainedConfig", model_args: "ModelArgumen
         logger.warning("Current model does not support liger kernel.")
         return
 
-    apply_liger_kernel()
+    apply_liger_kernel(rope=True, swiglu=True, cross_entropy=False, fused_linear_cross_entropy=True, rms_norm=True)
     logger.info("Liger kernel has been applied to the model.")
