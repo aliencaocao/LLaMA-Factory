@@ -24,6 +24,7 @@ import numpy as np
 import torch
 from transformers import Seq2SeqTrainer
 from transformers.generation import GenerateDecoderOnlyOutput
+from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 from typing_extensions import override
 
 from ...extras.constants import IGNORE_INDEX
@@ -80,19 +81,21 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         create_custom_scheduler(self.args, num_training_steps, optimizer)
         return super().create_scheduler(num_training_steps, optimizer)
 
+
     @override
     def prediction_step(
         self,
         model: "torch.nn.Module",
         inputs: Dict[str, Union["torch.Tensor", Any]],
         prediction_loss_only: bool,
-        ignore_keys: Optional[List[str]] = None,
+        ignore_keys: Optional[List[str]] = None
     ) -> Tuple[Optional[float], Optional["GenerateDecoderOnlyOutput"], Optional["torch.Tensor"]]:
         r"""
         Removes the prompt part in the generated tokens.
 
         Subclass and override to inject custom behavior.
         """
+        gen_kwargs = self.gen_kwargs
         labels = inputs["labels"] if "labels" in inputs else None
         if self.args.predict_with_generate:
             assert self.tokenizer.padding_side == "left", "This method only accepts left-padded tensor."
@@ -138,8 +141,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 k: v for k, v in inputs.items() if k not in ("decoder_input_ids", "decoder_attention_mask")
             }
 
-        # patch for LLAMA-Factory: when output_scores is true, generated_tokens will be GenerateDecoderOnlyOutput, else it will be torch.LongTensor (token ids only)
-        generated_results: Union[GenerateDecoderOnlyOutput, torch.LongTensor] = self.model.generate(**generation_inputs, **gen_kwargs)
+        # patch for LLAMA-Factory: to allow output_scores=true, generated_tokens will be GenerateDecoderOnlyOutput, instead of the original torch.LongTensor (token ids only)
+        generated_results: GenerateDecoderOnlyOutput = self.model.generate(**generation_inputs, **gen_kwargs)
 
         # Temporary hack to ensure the generation config is not initialized for each iteration of the evaluation loop
         # TODO: remove this hack when the legacy code that initializes generation_config from a model config is
@@ -149,10 +152,6 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
         # Retrieves GenerationConfig from model.generation_config
         gen_config = self.model.generation_config
-
-        # standardize to GenerateDecoderOnlyOutput
-        if isinstance(generated_results, torch.LongTensor):
-            generated_results = GenerateDecoderOnlyOutput(sequences=generated_results)
 
         if generated_results.sequences.shape[-1] < gen_config.max_length:
             # in case the batch is shorter than max length, the output should be padded
@@ -174,17 +173,19 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         if self.args.prediction_loss_only:
             return loss, None, None
 
-        if has_labels:
-            labels = inputs["labels"]
-            if labels.shape[-1] < gen_config.max_length:
-                labels = self._pad_tensors_to_max_len(labels, gen_config.max_length)
-            elif gen_config.max_new_tokens is not None and labels.shape[-1] < gen_config.max_new_tokens + 1:
-                labels = self._pad_tensors_to_max_len(labels, gen_config.max_new_tokens + 1)
-        else:
-            labels = None
+        # ignore labels below as in original LF impl: ignore the returned labels (may be truncated)
+        # if has_labels:
+        #     labels = inputs["labels"]
+        #     if labels.shape[-1] < gen_config.max_length:
+        #         labels = self._pad_tensors_to_max_len(labels, gen_config.max_length)
+        #     elif gen_config.max_new_tokens is not None and labels.shape[-1] < gen_config.max_new_tokens + 1:
+        #         labels = self._pad_tensors_to_max_len(labels, gen_config.max_new_tokens + 1)
+        # else:
+        #     labels = None
 
         # full prediction step override end
 
+        # original LF impl calls the original unpatched prediction_step, which we just replaced above
         # loss, generated_results, _ = self._prediction_step(  # ignore the returned labels (may be truncated)
         #     model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys, **self.gen_kwargs
         # )
