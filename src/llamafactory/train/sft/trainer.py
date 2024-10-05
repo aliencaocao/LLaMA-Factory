@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from transformers import Seq2SeqTrainer
+from transformers.generation import GenerateDecoderOnlyOutput
 from typing_extensions import override
 
 from ...extras.constants import IGNORE_INDEX
@@ -86,7 +87,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         inputs: Dict[str, Union["torch.Tensor", Any]],
         prediction_loss_only: bool,
         ignore_keys: Optional[List[str]] = None,
-    ) -> Tuple[Optional[float], Optional["torch.Tensor"], Optional["torch.Tensor"]]:
+    ) -> Tuple[Optional[float], Optional["GenerateDecoderOnlyOutput"], Optional["torch.Tensor"]]:
         r"""
         Removes the prompt part in the generated tokens.
 
@@ -102,14 +103,97 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             if label_len > prompt_len:  # truncate the labels instead of padding the inputs (llama2 fp16 compatibility)
                 inputs["labels"] = inputs["labels"][:, :prompt_len]
 
-        loss, generated_tokens, _ = super().prediction_step(  # ignore the returned labels (may be truncated)
-            model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys, **self.gen_kwargs
-        )
-        if generated_tokens is not None and self.args.predict_with_generate:
-            generated_tokens[:, :prompt_len] = self.tokenizer.pad_token_id
-            generated_tokens = generated_tokens.contiguous()
+        # full prediction step override start
+        if not self.args.predict_with_generate or prediction_loss_only:
+            return super().prediction_step(
+                model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
+            )
 
-        return loss, generated_tokens, labels
+        has_labels = "labels" in inputs
+        inputs = self._prepare_inputs(inputs)
+
+        # Priority (handled in generate):
+        # non-`None` gen_kwargs > model.generation_config > default GenerationConfig()
+        if len(gen_kwargs) == 0 and hasattr(self, "_gen_kwargs"):
+            gen_kwargs = self._gen_kwargs.copy()
+        if "num_beams" in gen_kwargs and gen_kwargs["num_beams"] is None:
+            gen_kwargs.pop("num_beams")
+        if "max_length" in gen_kwargs and gen_kwargs["max_length"] is None:
+            gen_kwargs.pop("max_length")
+
+        default_synced_gpus = True if is_deepspeed_zero3_enabled() else False
+        gen_kwargs["synced_gpus"] = (
+            gen_kwargs["synced_gpus"] if gen_kwargs.get("synced_gpus") is not None else default_synced_gpus
+        )
+
+        generation_inputs = inputs.copy()
+        # If the `decoder_input_ids` was created from `labels`, evict the former, so that the model can freely generate
+        # (otherwise, it would continue generating from the padded `decoder_input_ids`)
+        if (
+                "labels" in generation_inputs
+                and "decoder_input_ids" in generation_inputs
+                and generation_inputs["labels"].shape == generation_inputs["decoder_input_ids"].shape
+        ):
+            generation_inputs = {
+                k: v for k, v in inputs.items() if k not in ("decoder_input_ids", "decoder_attention_mask")
+            }
+
+        # patch for LLAMA-Factory: when output_scores is true, generated_tokens will be GenerateDecoderOnlyOutput, else it will be torch.LongTensor (token ids only)
+        generated_results: Union[GenerateDecoderOnlyOutput, torch.LongTensor] = self.model.generate(**generation_inputs, **gen_kwargs)
+
+        # Temporary hack to ensure the generation config is not initialized for each iteration of the evaluation loop
+        # TODO: remove this hack when the legacy code that initializes generation_config from a model config is
+        # removed in https://github.com/huggingface/transformers/blob/98d88b23f54e5a23e741833f1e973fdf600cc2c5/src/transformers/generation/utils.py#L1183
+        if self.model.generation_config._from_model_config:
+            self.model.generation_config._from_model_config = False
+
+        # Retrieves GenerationConfig from model.generation_config
+        gen_config = self.model.generation_config
+
+        # standardize to GenerateDecoderOnlyOutput
+        if isinstance(generated_results, torch.LongTensor):
+            generated_results = GenerateDecoderOnlyOutput(sequences=generated_results)
+
+        if generated_results.sequences.shape[-1] < gen_config.max_length:
+            # in case the batch is shorter than max length, the output should be padded
+            generated_results.sequences = self._pad_tensors_to_max_len(generated_results.sequences, gen_config.max_length)
+        elif gen_config.max_new_tokens is not None and generated_tokens.shape[-1] < gen_config.max_new_tokens + 1:
+            generated_results.sequences = self._pad_tensors_to_max_len(generated_results.sequences, gen_config.max_new_tokens + 1)
+
+        with torch.no_grad():
+            if has_labels:
+                with self.compute_loss_context_manager():
+                    outputs = model(**inputs)
+                if self.label_smoother is not None:
+                    loss = self.label_smoother(outputs, inputs["labels"]).mean().detach()
+                else:
+                    loss = (outputs["loss"] if isinstance(outputs, dict) else outputs[0]).mean().detach()
+            else:
+                loss = None
+
+        if self.args.prediction_loss_only:
+            return loss, None, None
+
+        if has_labels:
+            labels = inputs["labels"]
+            if labels.shape[-1] < gen_config.max_length:
+                labels = self._pad_tensors_to_max_len(labels, gen_config.max_length)
+            elif gen_config.max_new_tokens is not None and labels.shape[-1] < gen_config.max_new_tokens + 1:
+                labels = self._pad_tensors_to_max_len(labels, gen_config.max_new_tokens + 1)
+        else:
+            labels = None
+
+        # full prediction step override end
+
+        # loss, generated_results, _ = self._prediction_step(  # ignore the returned labels (may be truncated)
+        #     model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys, **self.gen_kwargs
+        # )
+
+        if generated_results.sequences is not None and self.args.predict_with_generate:
+            generated_results.sequences[:, :prompt_len] = self.tokenizer.pad_token_id  # noqa
+            generated_results.sequences = generated_results.sequences.contiguous()
+
+        return loss, generated_results, labels
 
     def _pad_tensors_to_target_len(self, src_tensor: "torch.Tensor", tgt_tensor: "torch.Tensor") -> "torch.Tensor":
         r"""
