@@ -51,27 +51,6 @@ class LastTokenClassification(CustomMetric):
             return 0.5
 
 
-    def get_classification_score(self, tokens: np.ndarray[int], pred_scores: np.ndarray) -> float:
-        yes_no_pos = None
-        for x in self.label_tokens:
-            try:
-                pos = np.where(tokens == x)[0]
-                if pos and (yes_no_pos is None or pos[-1] > yes_no_pos):
-                    yes_no_pos = pos[-1]
-            except ValueError:
-                continue
-        if yes_no_pos is None:
-            logging.warning(f'Yes/No token not found in prediction: {tokenizer.decode(tokens, skip_special_tokens=True)}')
-            return 0.5
-        yes_no_tok = tokens[yes_no_pos]
-        from scipy.special import softmax
-        softmax_scores = softmax(pred_scores, axis=-1)
-        score = softmax_scores[yes_no_idx, yes_no_tok] / np.take(softmax_scores, self.label_tokens, axis=-1).sum()
-        if self.tokenizer.decode(yes_no_tok).lower().strip() == 'no':
-            score = 1 - score
-        return score
-
-
     def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
         total, correct = 0, 0
         logits_for_auroc = []

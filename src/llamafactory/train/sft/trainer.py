@@ -20,6 +20,7 @@ import os
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import time
+import logging
 
 import numpy as np
 import torch
@@ -92,10 +93,18 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
     def get_classification_score(self, batch_tokens: torch.LongTensor, batch_pred_scores: torch.FloatTensor) -> torch.FloatTensor:
         """Add to get logits on specific tokens to prevent excess vram usage. For eval only."""
-        yes_no_pos = None
         scores = []
         batch_pred_scores = batch_pred_scores.softmax(dim=-1)
         for tokens, pred_scores in zip(batch_tokens, batch_pred_scores):
+            try:
+                eos_idx = torch.where(tokens == self.tokenizer.eos_token_id)[0][0]
+            except IndexError:
+                logging.warning(f'EOS token not found in seq, returning score as 0.5: {tokenizer.decode(tokens, skip_special_tokens=True)}')
+                score = torch.FloatTensor([0.5], device=self.args.device)
+                scores.append(score)
+                continue
+            tokens = tokens[:eos_idx]
+            yes_no_pos = None
             for x in self.label_tokens:
                 try:
                     pos = torch.where(tokens == x)[0]
@@ -104,11 +113,14 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 except ValueError:
                     continue
             if yes_no_pos is None:
-                logging.warning(f'Yes/No token not found in prediction: {tokenizer.decode(tokens, skip_special_tokens=True)}')
-                return 0.5
-            yes_no_idx_from_back = tokens.size(0) - yes_no_pos
-            yes_no_tok = tokens[-yes_no_idx_from_back]
-            score = pred_scores[-yes_no_idx_from_back, yes_no_tok] / pred_scores.index_select(1, self.label_tokens_tensor).sum()
+                logging.warning(f'Yes/No token not found in prediction, returning score as 0.5: {tokenizer.decode(tokens, skip_special_tokens=True)}')
+                score = torch.FloatTensor([0.5], device=self.args.device)
+                scores.append(score)
+                continue
+            yes_no_tok = tokens[yes_no_pos]
+            pred_tokens = torch.argmax(pred_scores, dim=-1)
+            yes_no_idx = torch.where(pred_tokens == yes_no_tok)[0][-1]  # need calc again because generating beyond EOS bring extra scores into pred_scores
+            score = pred_scores[yes_no_idx, yes_no_tok] / pred_scores[yes_no_idx].index_select(0, self.label_tokens_tensor).sum()
             if self.tokenizer.decode(yes_no_tok).lower().strip() == 'no':
                 score = 1 - score
             scores.append(score)
