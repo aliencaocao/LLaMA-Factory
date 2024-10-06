@@ -96,6 +96,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         scores = []
         batch_pred_scores = batch_pred_scores.softmax(dim=-1)
         for tokens, pred_scores in zip(batch_tokens, batch_pred_scores):
+            if self.gen_kwargs.get('do_sample', False):
+                tokens = pred_tokens = torch.argmax(pred_scores, dim=-1)  # in sampling, we need to use the logits as the real answer and ignore the actual generated tokens since they can be random
             try:
                 eos_idx = torch.where(tokens == self.tokenizer.eos_token_id)[0][0]
             except IndexError:
@@ -118,7 +120,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 scores.append(score)
                 continue
             yes_no_tok = tokens[yes_no_pos]
-            pred_tokens = torch.argmax(pred_scores, dim=-1)
+            if not self.gen_kwargs.get('do_sample', False):
+                pred_tokens = torch.argmax(pred_scores, dim=-1)
             yes_no_idx = torch.where(pred_tokens == yes_no_tok)[0][-1]  # need calc again because generating beyond EOS bring extra scores into pred_scores
             score = pred_scores[yes_no_idx, yes_no_tok] / pred_scores[yes_no_idx].index_select(0, self.label_tokens_tensor).sum()
             if self.tokenizer.decode(yes_no_tok).lower().strip() == 'no':
