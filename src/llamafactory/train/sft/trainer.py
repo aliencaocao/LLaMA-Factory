@@ -19,19 +19,23 @@ import json
 import os
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+import time
 
 import numpy as np
 import torch
 from transformers import Seq2SeqTrainer
 from transformers.generation import GenerateDecoderOnlyOutput
-from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
+from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled, deepspeed_init
+from transformers.trainer_utils import has_length, EvalLoopOutput, denumpify_detensorize, EvalPrediction, is_torch_xla_available
+from transformers.trainer_pt_utils import EvalLoopContainer, find_batch_size
+
 from typing_extensions import override
 
 from ...extras.constants import IGNORE_INDEX
 from ...extras.logging import get_logger
 from ..callbacks import PissaConvertCallback, SaveProcessorCallback
 from ..trainer_utils import create_custom_optimizer, create_custom_scheduler
-
+from torch.utils.data import DataLoader
 
 if TYPE_CHECKING:
     from torch.utils.data import Dataset
@@ -96,9 +100,6 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         Works both with or without labels.
         """
         args = self.args
-        from transformers.integrations.deepspeed import deepspeed_init
-        from transformers.trainer_utils import has_length, EvalLoopContainer, find_batch_size, EvalLoopOutput, denumpify_detensorize, EvalPrediction, is_torch_xla_available
-
         prediction_loss_only = prediction_loss_only if prediction_loss_only is not None else args.prediction_loss_only
 
         # if eval is called w/o train, handle model prep here
@@ -197,6 +198,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 # Pad labels here, preparing for preprocess_logits_for_metrics in next logits block.
                 labels = self.accelerator.pad_across_processes(labels, dim=1, pad_index=-100)
             if logits is not None:
+                logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)  # needed for multigpu padding since axis 0 was the dynamic 1 but below we pad alone axis 1.
                 logits = self.accelerator.pad_across_processes(logits, dim=1, pad_index=-100)
                 if self.preprocess_logits_for_metrics is not None:
                     logits = self.preprocess_logits_for_metrics(logits, labels)
