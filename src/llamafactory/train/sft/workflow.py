@@ -64,6 +64,7 @@ def run_sft(
     training_args.generation_max_length = training_args.generation_max_length or data_args.cutoff_len
     training_args.generation_num_beams = data_args.eval_num_beams or training_args.generation_num_beams
     training_args.remove_unused_columns = False  # important for multimodal dataset
+    training_args.eval_do_concat_batches = False  # needed to make return logits work
 
     # Metric utils
     metric_module = {}

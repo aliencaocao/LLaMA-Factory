@@ -67,6 +67,10 @@ class GeneratingArguments:
         default=None,
         metadata={"help": "Default system message to use in chat completion."},
     )
+    output_scores: Optional[str] = field(
+            default = False,
+            metadata = {"help": "Whether to output scores too"},
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         args = asdict(self)
