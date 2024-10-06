@@ -56,15 +56,14 @@ class LastTokenClassification(CustomMetric):
         for x in self.label_tokens:
             try:
                 pos = np.where(tokens == x)[0]
-                if pos and (yes_no_pos is None or pos > yes_no_pos):
+                if pos and (yes_no_pos is None or pos[-1] > yes_no_pos):
                     yes_no_pos = pos[-1]
             except ValueError:
                 continue
         if yes_no_pos is None:
             logging.warning(f'Yes/No token not found in prediction: {tokenizer.decode(tokens, skip_special_tokens=True)}')
             return 0.5
-        yes_no_idx = len(tokens) - yes_no_pos - 1
-        yes_no_tok = tokens[yes_no_idx]
+        yes_no_tok = tokens[yes_no_pos]
         from scipy.special import softmax
         softmax_scores = softmax(pred_scores, axis=-1)
         score = softmax_scores[yes_no_idx, yes_no_tok] / np.take(softmax_scores, self.label_tokens, axis=-1).sum()
@@ -80,12 +79,12 @@ class LastTokenClassification(CustomMetric):
         for pred, label_batched in zip(eval_preds.predictions, eval_preds.label_ids):
             pred: "GenerateDecoderOnlyOutput"
             pred_tokens_batched: np.ndarray = pred.sequences  # noqa
-            logits_batched: np.ndarray = np.stack(pred.scores, axis=1)  # noqa
+            logits_batched: pred.scores
             for pred_tokens, label, logits in zip(pred_tokens_batched, label_batched, logits_batched):
                 pred_str = self.tokenizer.decode([x for x in pred_tokens if x > 0], skip_special_tokens=True)
                 label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)
                 label = self.find_last(label)
-                logits_for_auroc.append(self.get_classification_score(pred_tokens, logits))
+                logits_for_auroc.append(logits)
                 labels_for_auroc.append(1 if label == 'yes' else 0)
                 try:
                     correct += int(self.find_last(pred_str) == label)

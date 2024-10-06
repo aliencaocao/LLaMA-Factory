@@ -72,6 +72,11 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             self.accelerator.clip_grad_norm_ = MethodType(clip_grad_norm_old_version, self.accelerator)
             self.add_callback(BAdamCallback)
 
+        # added for getting logits on specific tokens to prevent excess vram usage
+        self.label_words = ['yes', 'no']
+        self.label_tokens = [i for i in range(self.tokenizer.vocab_size) if self.tokenizer.decode(i).lower().strip() in self.label_words]  # all possible class tokens
+        self.label_tokens_tensor = torch.tensor(self.label_tokens, device=self.args.device, dtype=torch.int64)
+
     @override
     def create_optimizer(self) -> "torch.optim.Optimizer":
         if self.optimizer is None:
@@ -84,6 +89,30 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     ) -> "torch.optim.lr_scheduler.LRScheduler":
         create_custom_scheduler(self.args, num_training_steps, optimizer)
         return super().create_scheduler(num_training_steps, optimizer)
+
+    def get_classification_score(self, batch_tokens: torch.LongTensor, batch_pred_scores: torch.FloatTensor) -> torch.FloatTensor:
+        """Add to get logits on specific tokens to prevent excess vram usage. For eval only."""
+        yes_no_pos = None
+        scores = []
+        batch_pred_scores = batch_pred_scores.softmax(dim=-1)
+        for tokens, pred_scores in zip(batch_tokens, batch_pred_scores):
+            for x in self.label_tokens:
+                try:
+                    pos = torch.where(tokens == x)[0]
+                    if pos.numel() and (yes_no_pos is None or pos[-1] > yes_no_pos):
+                        yes_no_pos = pos[-1]
+                except ValueError:
+                    continue
+            if yes_no_pos is None:
+                logging.warning(f'Yes/No token not found in prediction: {tokenizer.decode(tokens, skip_special_tokens=True)}')
+                return 0.5
+            yes_no_idx_from_back = tokens.size(0) - yes_no_pos
+            yes_no_tok = tokens[-yes_no_idx_from_back]
+            score = pred_scores[-yes_no_idx_from_back, yes_no_tok] / pred_scores.index_select(1, self.label_tokens_tensor).sum()
+            if self.tokenizer.decode(yes_no_tok).lower().strip() == 'no':
+                score = 1 - score
+            scores.append(score)
+        return torch.stack(scores)
 
     @override
     def evaluation_loop(
@@ -182,6 +211,10 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             main_input_name = getattr(self.model, "main_input_name", "input_ids")
             inputs_decode = self._prepare_input(inputs[main_input_name]) if args.include_inputs_for_metrics else None
 
+            # added for AISG: get logit for specific tokens to prevent excess vram usage
+            logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)
+            logits.scores = self.get_classification_score(logits.sequences, logits.scores)
+
             if is_torch_xla_available():
                 xm.mark_step()
 
@@ -198,7 +231,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 # Pad labels here, preparing for preprocess_logits_for_metrics in next logits block.
                 labels = self.accelerator.pad_across_processes(labels, dim=1, pad_index=-100)
             if logits is not None:
-                logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)  # needed for multigpu padding since axis 0 was the dynamic 1 but below we pad alone axis 1.
+                # logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)  # needed for multigpu padding since axis 0 was the dynamic 1 but below we pad alone axis 1.
                 logits = self.accelerator.pad_across_processes(logits, dim=1, pad_index=-100)
                 if self.preprocess_logits_for_metrics is not None:
                     logits = self.preprocess_logits_for_metrics(logits, labels)
@@ -363,6 +396,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
         # patch for LLAMA-Factory: to allow output_scores=true, generated_tokens will be GenerateDecoderOnlyOutput, instead of the original torch.LongTensor (token ids only)
         generated_results: GenerateDecoderOnlyOutput = self.model.generate(**generation_inputs, **gen_kwargs)
+        del generated_results.past_key_values  # save memory
 
         # Temporary hack to ensure the generation config is not initialized for each iteration of the evaluation loop
         # TODO: remove this hack when the legacy code that initializes generation_config from a model config is
