@@ -115,7 +115,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 except ValueError:
                     continue
             if yes_no_pos is None:
-                logging.warning(f'Yes/No token not found in prediction, returning score as 0.5: {tokenizer.decode(tokens, skip_special_tokens=True)}')
+                logging.warning(f'Yes/No token not found in prediction, returning score as 0.5: {self.tokenizer.decode(tokens, skip_special_tokens=True)}')
                 score = torch.tensor(0.5, device=self.args.device, dtype=torch.float32)
                 scores.append(score)
                 continue
