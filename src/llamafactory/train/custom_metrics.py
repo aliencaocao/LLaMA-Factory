@@ -58,23 +58,38 @@ class LastTokenClassification(CustomMetric):
         for pred, label_batched in zip(eval_preds.predictions, eval_preds.label_ids):
             pred: "GenerateDecoderOnlyOutput"
             pred_tokens_batched: np.ndarray = pred.sequences  # noqa
-            logits_batched: pred.scores
-            for pred_tokens, label, logits in zip(pred_tokens_batched, label_batched, logits_batched):
-                pred_str = self.tokenizer.decode([x for x in pred_tokens if x > 0], skip_special_tokens=True)
-                label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)
-                label = self.find_last(label)
-                logits_for_auroc.append(logits)
-                labels_for_auroc.append(1 if label == 'yes' else 0)
-                try:
-                    correct += int(self.find_last(pred_str) == label)
-                    total += 1
-                except Exception as e:
-                    logging.error(f'Failed to evaluate sample due to {e}:\n'
-                          f'Prediction: {pred_str}\n'
-                          f'Label: {label}')
+            if pred.scores:
+                logits_batched: pred.scores
+                for pred_tokens, label, logits in zip(pred_tokens_batched, label_batched, logits_batched):
+                    pred_str = self.tokenizer.decode([x for x in pred_tokens if x > 0], skip_special_tokens=True)
+                    label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)
+                    label = self.find_last(label)
+                    logits_for_auroc.append(logits)
+                    labels_for_auroc.append(1 if label == 'yes' else 0)
+                    try:
+                        correct += int(self.find_last(pred_str) == label)
+                        total += 1
+                    except Exception as e:
+                        logging.error(f'Failed to evaluate sample due to {e}:\n'
+                              f'Prediction: {pred_str}\n'
+                              f'Label: {label}')
+            else:
+                for pred_tokens, label in zip(pred_tokens_batched, label_batched):
+                    pred_str = self.tokenizer.decode([x for x in pred_tokens if x > 0], skip_special_tokens=True)
+                    label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)
+                    label = self.find_last(label)
+                    try:
+                        correct += int(self.find_last(pred_str) == label)
+                        total += 1
+                    except Exception as e:
+                        logging.error(f'Failed to evaluate sample due to {e}:\n'
+                              f'Prediction: {pred_str}\n'
+                              f'Label: {label}')
+
         print(f'acc {correct / total if total else 0.}')
-        self.score_dict = {'acc': (correct / total if total else 0.),
-                           'auroc': self.calc_auroc(logits_for_auroc, labels_for_auroc)}
+        self.score_dict = {'acc': (correct / total if total else 0.)}
+        if logits_for_auroc:
+            self.score_dict['auroc'] = self.calc_auroc(logits_for_auroc, labels_for_auroc)
 
         if compute_result:
             return self._dump()
