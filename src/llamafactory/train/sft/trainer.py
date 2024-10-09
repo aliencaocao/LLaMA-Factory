@@ -227,7 +227,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             inputs_decode = self._prepare_input(inputs[main_input_name]) if args.include_inputs_for_metrics else None
 
             # added for AISG: get logit for specific tokens to prevent excess vram usage
-            if logits.scores:
+            if logits.scores is not None:
                 logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)
                 logits.scores = self.get_classification_score(logits.sequences, logits.scores)
 
