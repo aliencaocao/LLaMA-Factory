@@ -97,6 +97,9 @@ def run_sft(
     gen_kwargs["logits_processor"] = get_logits_processor()
     gen_kwargs['return_dict_in_generate'] = True
 
+    if gen_kwargs['output_scores'] and gen_kwargs['output_logits']:
+        raise ValueError("Both output_scores and output_logits cannot be set to True at the same time.")
+
     # Initialize our Trainer
     trainer = CustomSeq2SeqTrainer(
         model=model,

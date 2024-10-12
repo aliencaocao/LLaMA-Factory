@@ -69,7 +69,12 @@ class GeneratingArguments:
     )
     output_scores: Optional[str] = field(
             default = False,
-            metadata = {"help": "Whether to output scores too"},
+            metadata = {"help": "Whether to output scores/processed logits too"},
+        )
+
+    output_logits: Optional[str] = field(
+            default = False,
+            metadata = {"help": "Whether to output unprocessed logits too"},
         )
 
     def to_dict(self) -> Dict[str, Any]:

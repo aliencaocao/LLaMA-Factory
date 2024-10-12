@@ -230,6 +230,10 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             if logits.scores is not None:
                 logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)
                 logits.scores = self.get_classification_score(logits.sequences, logits.scores)
+            if logits.logits is not None:  # also store it in the scores attribute for ease of coding the eval metric
+                logits.scores = torch.swapaxes(torch.stack(logits.logits), 0, 1)
+                del logits.logits
+                logits.scores = self.get_classification_score(logits.sequences, logits.scores)
 
             if is_torch_xla_available():
                 xm.mark_step()
@@ -247,7 +251,6 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 # Pad labels here, preparing for preprocess_logits_for_metrics in next logits block.
                 labels = self.accelerator.pad_across_processes(labels, dim=1, pad_index=-100)
             if logits is not None:
-                # logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)  # needed for multigpu padding since axis 0 was the dynamic 1 but below we pad alone axis 1.
                 logits = self.accelerator.pad_across_processes(logits, dim=1, pad_index=-100)
                 if self.preprocess_logits_for_metrics is not None:
                     logits = self.preprocess_logits_for_metrics(logits, labels)
