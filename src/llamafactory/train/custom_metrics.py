@@ -58,8 +58,8 @@ class LastTokenClassification(CustomMetric):
         for pred, label_batched in zip(eval_preds.predictions, eval_preds.label_ids):
             pred: "GenerateDecoderOnlyOutput"
             pred_tokens_batched: np.ndarray = pred.sequences  # noqa
-            if pred.scores is not None:
-                logits_batched = pred.scores
+            if pred.scores is not None or pred.logits is not None:
+                logits_batched = pred.scores if pred.scores is not None else pred.logits
                 for pred_tokens, label, logits in zip(pred_tokens_batched, label_batched, logits_batched):
                     pred_str = self.tokenizer.decode([x for x in pred_tokens if x > 0], skip_special_tokens=True)
                     label = self.tokenizer.decode([x for x in label if x > 0], skip_special_tokens=True)

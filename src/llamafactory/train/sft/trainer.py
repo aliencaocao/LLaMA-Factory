@@ -230,10 +230,9 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             if logits.scores is not None:
                 logits.scores = torch.swapaxes(torch.stack(logits.scores), 0, 1)
                 logits.scores = self.get_classification_score(logits.sequences, logits.scores)
-            if logits.logits is not None:  # also store it in the scores attribute for ease of coding the eval metric
-                logits.scores = torch.swapaxes(torch.stack(logits.logits), 0, 1)
-                del logits.logits
-                logits.scores = self.get_classification_score(logits.sequences, logits.scores)
+            if logits.logits is not None:
+                logits.logits = torch.swapaxes(torch.stack(logits.logits), 0, 1)
+                logits.logits = self.get_classification_score(logits.sequences, logits.logits)
 
             if is_torch_xla_available():
                 xm.mark_step()
