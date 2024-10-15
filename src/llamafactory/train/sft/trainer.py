@@ -74,9 +74,12 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             self.add_callback(BAdamCallback)
 
         # added for getting logits on specific tokens to prevent excess vram usage
-        self.label_words = ['yes', 'no']
-        self.label_tokens = [i for i in range(self.tokenizer.vocab_size) if self.tokenizer.decode(i).lower().strip() in self.label_words]  # all possible class tokens
-        self.label_tokens_tensor = torch.tensor(self.label_tokens, device=self.args.device, dtype=torch.int64)
+        self.yes_tokens = [i for i in range(self.tokenizer.vocab_size) if self.tokenizer.decode(i).lower().strip() == 'yes']  # all possible yes tokens
+        self.yes_tokens_tensor = torch.tensor(self.yes_tokens, device=self.args.device, dtype=torch.int64)
+        self.no_tokens = [i for i in range(self.tokenizer.vocab_size) if self.tokenizer.decode(i).lower().strip() == 'no']  # all possible no tokens
+        self.no_tokens_tensor = torch.tensor(self.no_tokens, device=self.args.device, dtype=torch.int64)
+        self.yes_no_tokens = self.yes_tokens + self.no_tokens
+        self.yes_no_tokens_tensor = torch.tensor(self.yes_no_tokens, device=self.args.device, dtype=torch.int64)
 
     @override
     def create_optimizer(self) -> "torch.optim.Optimizer":
@@ -107,7 +110,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 continue
             tokens = tokens[:eos_idx]
             yes_no_pos = None
-            for x in self.label_tokens:
+            for x in self.yes_no_tokens:
                 try:
                     pos = torch.where(tokens == x)[0]
                     if pos.numel() and (yes_no_pos is None or pos[-1] > yes_no_pos):
@@ -123,8 +126,9 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             if not self.gen_kwargs.get('do_sample', False):
                 pred_tokens = torch.argmax(pred_scores, dim=-1)
             yes_no_idx = torch.where(pred_tokens == yes_no_tok)[0][-1]  # need calc again because generating beyond EOS bring extra scores into pred_scores
-            score = pred_scores[yes_no_idx, yes_no_tok] / pred_scores[yes_no_idx].index_select(0, self.label_tokens_tensor).sum()
-            if self.tokenizer.decode(yes_no_tok).lower().strip() == 'no':
+            label_bool = yes_no_tok in self.yes_no_tokens
+            score = pred_scores[yes_no_idx].index_select(-1, self.yes_tokens_tensor if label_bool else self.no_tokens_tensor).sum() / pred_scores[yes_no_idx].index_select(0, self.yes_no_tokens_tensor).sum()
+            if not label_bool:
                 score = 1 - score
             scores.append(score)
         return torch.stack(scores)
